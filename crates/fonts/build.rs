@@ -72,12 +72,7 @@ fn input_fonts(dir: Option<&std::path::Path>, wasm: bool, required: bool) -> Res
 /// Use no fonts when the directory is absent unless required; otherwise load the manifests.
 fn load_fonts(dir: Option<&std::path::Path>, wasm: bool, required: bool) -> Result<FontInput, String> {
     match dir {
-        Some(dir) if dir.is_dir() => craft_fonts(dir, wasm, required),
-        Some(dir) if required => Err(format!(
-            "{}: CRAFT_FONTS_REQUIRED is set but CRAFT_FONTS_DIR does not exist",
-            dir.display()
-        )),
-        Some(_) => Ok(FontInput::default()),
+        Some(dir) => craft_fonts(dir, wasm, required),
         None if required => Err("CRAFT_FONTS_REQUIRED is set but CRAFT_FONTS_DIR is missing".into()),
         None => Ok(FontInput::default()),
     }
@@ -91,6 +86,7 @@ fn craft_fonts(dir: &std::path::Path, wasm: bool, required: bool) -> Result<Font
     // A malformed or incomplete optional manifest is skipped as a unit: the main Japanese/symbol/RTL
     // faces and the native Chinese addition stay usable, and required builds still fail validation.
     let latin = dir.join("fonts/latin-manifest.txt");
+    println!("cargo::rerun-if-changed={}", latin.display());
     let latin_exists = match latin.try_exists() {
         Ok(exists) => exists,
         Err(e) if required => return Err(format!("{}: {e}", latin.display())),
@@ -100,7 +96,6 @@ fn craft_fonts(dir: &std::path::Path, wasm: bool, required: bool) -> Result<Font
         }
     };
     if latin_exists {
-        println!("cargo::rerun-if-changed={}", latin.display());
         match manifest(dir, &latin, wasm) {
             Ok(entries) => input.append(entries),
             Err(e) if required => return Err(e),
@@ -112,6 +107,7 @@ fn craft_fonts(dir: &std::path::Path, wasm: bool, required: bool) -> Result<Font
     // An invalid optional addition must never discard the main Japanese/symbol/RTL faces.
     if !wasm {
         let chinese = dir.join("fonts/simplified-chinese-manifest.txt");
+        println!("cargo::rerun-if-changed={}", chinese.display());
         let exists = match chinese.try_exists() {
             Ok(exists) => exists,
             Err(e) if required => return Err(format!("{}: {e}", chinese.display())),
@@ -121,7 +117,6 @@ fn craft_fonts(dir: &std::path::Path, wasm: bool, required: bool) -> Result<Font
             }
         };
         if exists {
-            println!("cargo::rerun-if-changed={}", chinese.display());
             match manifest(dir, &chinese, false) {
                 Ok(entries) => input.append(entries),
                 Err(e) if required => return Err(e),
@@ -142,8 +137,8 @@ fn craft_fonts(dir: &std::path::Path, wasm: bool, required: bool) -> Result<Font
 /// Parse one manifest, reject malformed rows, exclude banned families, apply the wasm filter,
 /// canonicalise assets, and emit initialisers.
 fn manifest(dir: &std::path::Path, manifest: &std::path::Path, wasm: bool) -> Result<FontInput, String> {
-    let text = std::fs::read_to_string(manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
     println!("cargo::rerun-if-changed={}", manifest.display());
+    let text = std::fs::read_to_string(manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
     let mut input = FontInput::default();
     for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
         let f: Vec<&str> = line.split(" | ").map(str::trim).collect();
